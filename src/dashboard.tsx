@@ -16,6 +16,13 @@ const PERIOD_LABELS: Record<Period, string> = {
   month: 'This Month',
 }
 
+const PERIOD_LABELS_SHORT: Record<Period, string> = {
+  today: 'T',
+  week: '7D',
+  '30days': '30D',
+  month: 'Mo',
+}
+
 const MIN_WIDE = 90
 const ORANGE = '#FF8C42'
 const DIM = '#555555'
@@ -85,11 +92,11 @@ type Layout = { dashWidth: number; wide: boolean; halfWidth: number; barWidth: n
 
 function getLayout(): Layout {
   const termWidth = process.stdout.columns || parseInt(process.env['COLUMNS'] ?? '') || 80
-  const dashWidth = Math.min(104, termWidth)
+  const dashWidth = termWidth
   const wide = dashWidth >= MIN_WIDE
   const halfWidth = wide ? Math.floor(dashWidth / 2) : dashWidth
   const inner = halfWidth - 4
-  const barWidth = Math.max(6, Math.min(10, inner - 30))
+  const barWidth = Math.max(4, Math.min(Math.floor(inner * 0.3), 20))
   return { dashWidth, wide, halfWidth, barWidth }
 }
 
@@ -376,12 +383,15 @@ function PeriodTabs({ active, providerName, showProvider }: {
   providerName?: string
   showProvider?: boolean
 }) {
+  const { dashWidth } = getLayout()
+  const compact = dashWidth < 70
+  const labels = compact ? PERIOD_LABELS_SHORT : PERIOD_LABELS
   return (
     <Box justifyContent="space-between" paddingX={1}>
       <Box gap={1}>
         {PERIODS.map(p => (
           <Text key={p} bold={active === p} color={active === p ? ORANGE : DIM}>
-            {active === p ? `[ ${PERIOD_LABELS[p]} ]` : `  ${PERIOD_LABELS[p]}  `}
+            {active === p ? `[ ${labels[p]} ]` : `  ${labels[p]}  `}
           </Text>
         ))}
       </Box>
@@ -397,23 +407,25 @@ function PeriodTabs({ active, providerName, showProvider }: {
 }
 
 function StatusBar({ width, autoRefresh }: { width: number; autoRefresh: boolean }) {
+  const compact = width < 70
+  const sep = compact ? ' ' : '   '
   return (
     <Box borderStyle="round" borderColor={DIM} width={width} justifyContent="center" paddingX={1}>
       <Text>
         <Text color={ORANGE} bold>{'<'}</Text><Text color={ORANGE}>{'>'}</Text>
-        <Text dimColor> switch   </Text>
+        <Text dimColor>{compact ? ' ' : ' switch'}{sep}</Text>
         <Text color={ORANGE} bold>q</Text>
-        <Text dimColor> quit   </Text>
+        <Text dimColor>{compact ? '' : ' quit'}{sep}</Text>
         <Text color={ORANGE} bold>1</Text>
-        <Text dimColor> today   </Text>
+        <Text dimColor>{compact ? '' : ' today'}{sep}</Text>
         <Text color={ORANGE} bold>2</Text>
-        <Text dimColor> week   </Text>
+        <Text dimColor>{compact ? '' : ' week'}{sep}</Text>
         <Text color={ORANGE} bold>3</Text>
-        <Text dimColor> 30 days   </Text>
+        <Text dimColor>{compact ? '' : ' 30d'}{sep}</Text>
         <Text color={ORANGE} bold>4</Text>
-        <Text dimColor> month   </Text>
+        <Text dimColor>{compact ? '' : ' month'}{sep}</Text>
         <Text color={ORANGE} bold>r</Text>
-        <Text dimColor> auto-refresh </Text>
+        <Text dimColor>{compact ? ' ' : ' auto-refresh '}</Text>
         <Text color={autoRefresh ? '#5BF58C' : DIM}>{autoRefresh ? 'on' : 'off'}</Text>
       </Text>
     </Box>
@@ -454,10 +466,10 @@ function DashboardContent({ projects, period }: { projects: ProjectSummary[]; pe
         <ToolBreakdown projects={projects} pw={pw} bw={barWidth} />
       </Row>
 
-      <Row wide={wide} width={dashWidth}>
+      {/* <Row wide={wide} width={dashWidth}>
         <BashBreakdown projects={projects} pw={pw} bw={barWidth} />
         <McpBreakdown projects={projects} pw={pw} bw={barWidth} />
-      </Row>
+      </Row> */}
     </Box>
   )
 }
