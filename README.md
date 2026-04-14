@@ -1,25 +1,6 @@
-<p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/FIEF-nohell/codeburn-cli@main/assets/logo.png" alt="CodeBurn" width="120" />
-</p>
+# CodeBurn
 
-<h1 align="center">CodeBurn</h1>
-
-<p align="center">See where your AI coding tokens go.</p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/codeburn"><img src="https://img.shields.io/npm/v/codeburn.svg" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/codeburn"><img src="https://img.shields.io/npm/dm/codeburn.svg" alt="npm downloads" /></a>
-  <a href="https://github.com/FIEF-nohell/codeburn-cli/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/codeburn.svg" alt="license" /></a>
-  <a href="https://github.com/FIEF-nohell/codeburn-cli"><img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg" alt="node version" /></a>
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/FIEF-nohell/codeburn-cli/main/assets/dashboard.jpg" alt="CodeBurn TUI dashboard" width="620" />
-</p>
-
-By task type, tool, model, MCP server, and project. Tracks one-shot success rate per activity type so you can see where the AI nails it first try vs. burns tokens on edit/test/fix retries. Interactive TUI dashboard with gradient charts, responsive panels, and keyboard navigation. macOS menu bar widget via SwiftBar. CSV/JSON export.
-
-Works by reading Claude Code session transcripts directly from disk. No wrapper, no proxy, no API keys. Pricing from LiteLLM (auto-cached, all models supported).
+See where your AI coding tokens go.
 
 ## Install
 
@@ -33,10 +14,7 @@ Or run without installing:
 npx codeburn
 ```
 
-### Requirements
-
-- Node.js 20+
-- Claude Code (reads `~/.claude/projects/` session data)
+Requires Node.js 20+ and Claude Code (`~/.claude/projects/` session data).
 
 ## Usage
 
@@ -51,65 +29,16 @@ codeburn export             # CSV with today, 7 days, 30 days
 codeburn export -f json     # JSON export
 ```
 
-Arrow keys switch between Today / 7 Days / Month. Press `q` to quit, `1` `2` `3` as shortcuts.
+Keyboard: arrow keys or `1`/`2`/`3`/`4` to switch periods, `r` to toggle auto-refresh, `q` to quit.
 
-## Menu Bar
-
-<img src="https://cdn.jsdelivr.net/gh/FIEF-nohell/codeburn-cli@main/assets/menubar.png" alt="CodeBurn SwiftBar menu bar widget" width="260" />
+## Menu Bar (macOS)
 
 ```bash
 codeburn install-menubar    # install SwiftBar/xbar plugin
 codeburn uninstall-menubar  # remove it
 ```
 
-Requires [SwiftBar](https://github.com/swiftbar/SwiftBar) (`brew install --cask swiftbar`). Shows today's cost in the menu bar with a flame icon. Dropdown shows activity breakdown, model costs, and token stats for today, 7 days, and month. Refreshes every 5 minutes.
-
-## What it tracks
-
-**13 task categories** classified from tool usage patterns and user message keywords. No LLM calls, fully deterministic.
-
-| Category | What triggers it |
-|---|---|
-| Coding | Edit, Write tools |
-| Debugging | Error/fix keywords + tool usage |
-| Feature Dev | "add", "create", "implement" keywords |
-| Refactoring | "refactor", "rename", "simplify" |
-| Testing | pytest, vitest, jest in Bash |
-| Exploration | Read, Grep, WebSearch without edits |
-| Planning | EnterPlanMode, TaskCreate tools |
-| Delegation | Agent tool spawns |
-| Git Ops | git push/commit/merge in Bash |
-| Build/Deploy | npm build, docker, pm2 |
-| Brainstorming | "brainstorm", "what if", "design" |
-| Conversation | No tools, pure text exchange |
-| General | Skill tool, uncategorized |
-
-**Breakdowns**: daily cost chart, per-project, per-model (Opus/Sonnet/Haiku/GPT-4o/Gemini), per-activity with one-shot rate, core tools, MCP servers.
-
-**One-shot rate**: For categories that involve code edits, CodeBurn detects edit/test/fix retry cycles (Edit -> Bash -> Edit patterns). The 1-shot column shows the percentage of edit turns that succeeded without retries. Coding at 90% means the AI got it right first try 9 out of 10 times.
-
-**Pricing**: Fetched from [LiteLLM](https://github.com/BerriAI/litellm) model prices (auto-cached 24h at `~/.cache/codeburn/`). Handles input, output, cache write, cache read, and web search costs. Fast mode multiplier for Claude. Fallback to hardcoded prices if fetch fails.
-
-## How it reads data
-
-Claude Code stores session transcripts as JSONL at `~/.claude/projects/<sanitized-path>/<session-id>.jsonl`. Each assistant entry contains model name, token usage (input, output, cache read, cache write), tool_use blocks, and timestamps.
-
-CodeBurn reads these files, deduplicates messages by API message ID (prevents double-counting across sessions), filters by date range per entry (not per session), and classifies each turn.
-
-## Project structure
-
-```
-src/
-  cli.ts          Commander.js entry point
-  dashboard.tsx   Ink TUI (React for terminals)
-  parser.ts       JSONL reader, dedup, date filter
-  models.ts       LiteLLM pricing, cost calculation
-  classifier.ts   13-category task classifier
-  types.ts        Type definitions
-  format.ts       Text rendering (status bar)
-  menubar.ts      SwiftBar plugin generator
-  export.ts       CSV/JSON multi-period export
-```
+Requires [SwiftBar](https://github.com/swiftbar/SwiftBar) (`brew install --cask swiftbar`).
 
 ## License
 
@@ -117,6 +46,4 @@ MIT
 
 ## Credits
 
-Inspired by [ccusage](https://github.com/ryoppippi/ccusage). Pricing data from [LiteLLM](https://github.com/BerriAI/litellm).
-
-Fork maintained by [nohell](https://github.com/FIEF-nohell). Originally built by [AgentSeal](https://agentseal.org).
+Inspired by [ccusage](https://github.com/ryoppippi/ccusage). Pricing data from [LiteLLM](https://github.com/BerriAI/litellm). Originally built by [AgentSeal](https://agentseal.org).
