@@ -38,6 +38,8 @@ const PANEL_COLORS = {
   tools: '#6366F1',
   mcp: '#F472B6',
   bash: '#D946EF',
+  heatmap: '#8B5CF6',
+  forecast: '#A855F7',
 }
 
 const CATEGORY_COLORS: Record<TaskCategory, string> = {
@@ -116,10 +118,10 @@ const PRIOR_LABELS: Record<Period, string> = {
   month: 'last month',
 }
 
-function getBaselineDateRange(): { start: Date; end: Date } {
+function getRecentDateRange(): { start: Date; end: Date } {
   const now = new Date()
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999)
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 8)
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 34)
   return { start, end }
 }
 
@@ -499,10 +501,115 @@ function Row({ wide, width, children }: { wide: boolean; width: number; children
   return <>{children}</>
 }
 
-function DashboardContent({ projects, priorProjects, baselineProjects, period }: {
+function Heatmap({ recentProjects, width }: { recentProjects: ProjectSummary[]; width: number }) {
+  const daily = computeDailyCosts(recentProjects)
+  const now = new Date()
+  const todayDow = (now.getDay() + 6) % 7
+  const mondayThisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - todayDow)
+  const weeks = 5
+  const gridStart = new Date(mondayThisWeek.getFullYear(), mondayThisWeek.getMonth(), mondayThisWeek.getDate() - (weeks - 1) * 7)
+
+  const grid: Array<Array<{ cost: number; future: boolean }>> = []
+  let maxCost = 0
+  for (let dow = 0; dow < 7; dow++) {
+    const row: Array<{ cost: number; future: boolean }> = []
+    for (let w = 0; w < weeks; w++) {
+      const cell = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + w * 7 + dow)
+      const iso = cell.toISOString().slice(0, 10)
+      const future = cell.getTime() > now.getTime()
+      const cost = daily[iso] ?? 0
+      if (!future) maxCost = Math.max(maxCost, cost)
+      row.push({ cost, future })
+    }
+    grid.push(row)
+  }
+
+  const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const totalCost = Object.values(daily).reduce((s, c) => s + c, 0)
+
+  return (
+    <Panel title={`Daily Heatmap (${weeks}w)`} color={PANEL_COLORS.heatmap} width={width}>
+      <Text dimColor wrap="truncate-end">    older{' '.repeat(Math.max(0, (weeks - 1) * 2 - 5))}now</Text>
+      {grid.map((row, dow) => (
+        <Text key={dow} wrap="truncate-end">
+          <Text dimColor>{DOW[dow]} </Text>
+          {row.map((cell, w) => {
+            if (cell.future) return <Text key={w}>  </Text>
+            if (cell.cost === 0) return <Text key={w} color={DIM}>· </Text>
+            const pct = maxCost > 0 ? cell.cost / maxCost : 0
+            return <Text key={w} color={gradientColor(pct)}>█ </Text>
+          })}
+        </Text>
+      ))}
+      <Text dimColor wrap="truncate-end">total {formatCost(totalCost)}   peak {formatCost(maxCost)}/d</Text>
+    </Panel>
+  )
+}
+
+function PredictionsPanel({ projects, priorProjects, projection, width }: {
   projects: ProjectSummary[]
   priorProjects: ProjectSummary[]
-  baselineProjects: ProjectSummary[]
+  projection: Projection | null
+  width: number
+}) {
+  const todayCost = projects.reduce((s, p) => s + p.totalCostUSD, 0)
+  const yesterdayCost = priorProjects.reduce((s, p) => s + p.totalCostUSD, 0)
+  const confidenceColor = projection?.confidence === 'low' ? DIM : GOLD
+  const deltaPct = yesterdayCost > 0 ? ((todayCost - yesterdayCost) / yesterdayCost) * 100 : null
+  const deltaColor = deltaPct === null ? DIM : deltaPct > 5 ? '#F55B5B' : deltaPct < -5 ? '#5BF58C' : DIM
+  const deltaStr = deltaPct === null
+    ? 'new'
+    : `${deltaPct > 0 ? '↑' : deltaPct < 0 ? '↓' : '='} ${Math.abs(deltaPct).toFixed(0)}%`
+
+  const labelPad = 16
+  return (
+    <Panel title="Today Forecast" color={PANEL_COLORS.forecast} width={width}>
+      <Text wrap="truncate-end">
+        <Text dimColor>{'Current'.padEnd(labelPad)}</Text>
+        <Text bold color={GOLD}>{formatCost(todayCost)}</Text>
+      </Text>
+      <Text wrap="truncate-end">
+        <Text dimColor>{'Yesterday'.padEnd(labelPad)}</Text>
+        <Text>{formatCost(yesterdayCost)}</Text>
+        <Text dimColor>  (</Text>
+        <Text color={deltaColor}>{deltaStr}</Text>
+        <Text dimColor>)</Text>
+      </Text>
+      {projection?.dailyBaseline !== undefined && (
+        <Text wrap="truncate-end">
+          <Text dimColor>{'7d avg (EMA)'.padEnd(labelPad)}</Text>
+          <Text>{formatCost(projection.dailyBaseline)}</Text>
+        </Text>
+      )}
+      {projection?.hoursElapsed !== undefined && (
+        <Text wrap="truncate-end">
+          <Text dimColor>{'Elapsed'.padEnd(labelPad)}</Text>
+          <Text>{projection.hoursElapsed.toFixed(1)}h</Text>
+          <Text dimColor>  (remaining {projection.hoursRemaining!.toFixed(1)}h)</Text>
+        </Text>
+      )}
+      {projection?.hourlyRate !== undefined && (
+        <Text wrap="truncate-end">
+          <Text dimColor>{'Burn rate'.padEnd(labelPad)}</Text>
+          <Text>{formatCost(projection.hourlyRate)}</Text>
+          <Text dimColor>/h</Text>
+        </Text>
+      )}
+      {projection && (
+        <Text wrap="truncate-end">
+          <Text dimColor>{'Projected EOD'.padEnd(labelPad)}</Text>
+          <Text bold color={confidenceColor}>~{formatCost(projection.projected)}</Text>
+          <Text dimColor>  ({projection.confidence} conf.)</Text>
+        </Text>
+      )}
+    </Panel>
+  )
+}
+
+function DashboardContent({ projects, priorProjects, recentProjects, period }: {
+  projects: ProjectSummary[]
+  priorProjects: ProjectSummary[]
+  recentProjects: ProjectSummary[]
   period: Period
 }) {
   const { dashWidth, wide, halfWidth, barWidth } = getLayout()
@@ -516,7 +623,7 @@ function DashboardContent({ projects, priorProjects, baselineProjects, period }:
   }
 
   const pw = wide ? halfWidth : dashWidth
-  const baselineDaily = computeDailyCosts(baselineProjects)
+  const baselineDaily = computeDailyCosts(recentProjects)
   const projection = projectEndOfPeriod(period, projects, baselineDaily)
 
   return (
@@ -531,11 +638,17 @@ function DashboardContent({ projects, priorProjects, baselineProjects, period }:
       />
 
       <Row wide={wide} width={dashWidth}>
-        <DailyActivity projects={projects} days={period === 'month' || period === '30days' ? 31 : 14} pw={pw} bw={barWidth} />
+        {period === 'today'
+          ? <PredictionsPanel projects={projects} priorProjects={priorProjects} projection={projection} width={pw} />
+          : <DailyActivity projects={projects} days={period === 'month' || period === '30days' ? 31 : 14} pw={pw} bw={barWidth} />
+        }
         <ProjectBreakdown projects={projects} pw={pw} bw={barWidth} />
       </Row>
 
-      <ActivityBreakdown projects={projects} pw={dashWidth} bw={barWidth} />
+      <Row wide={wide} width={dashWidth}>
+        <ActivityBreakdown projects={projects} pw={pw} bw={barWidth} />
+        <Heatmap recentProjects={recentProjects} width={pw} />
+      </Row>
 
       <Row wide={wide} width={dashWidth}>
         <ModelBreakdown projects={projects} pw={pw} bw={barWidth} />
@@ -550,10 +663,10 @@ function DashboardContent({ projects, priorProjects, baselineProjects, period }:
   )
 }
 
-function InteractiveDashboard({ initialProjects, initialPriorProjects, initialBaselineProjects, initialPeriod, initialProvider }: {
+function InteractiveDashboard({ initialProjects, initialPriorProjects, initialRecentProjects, initialPeriod, initialProvider }: {
   initialProjects: ProjectSummary[]
   initialPriorProjects: ProjectSummary[]
-  initialBaselineProjects: ProjectSummary[]
+  initialRecentProjects: ProjectSummary[]
   initialPeriod: Period
   initialProvider: string
 }) {
@@ -561,7 +674,7 @@ function InteractiveDashboard({ initialProjects, initialPriorProjects, initialBa
   const [period, setPeriod] = useState<Period>(initialPeriod)
   const [projects, setProjects] = useState<ProjectSummary[]>(initialProjects)
   const [priorProjects, setPriorProjects] = useState<ProjectSummary[]>(initialPriorProjects)
-  const [baselineProjects, setBaselineProjects] = useState<ProjectSummary[]>(initialBaselineProjects)
+  const [recentProjects, setBaselineProjects] = useState<ProjectSummary[]>(initialRecentProjects)
   const [loading, setLoading] = useState(false)
   const [activeProvider, setActiveProvider] = useState(initialProvider)
   const [detectedProviders, setDetectedProviders] = useState<string[]>([])
@@ -618,7 +731,7 @@ function InteractiveDashboard({ initialProjects, initialPriorProjects, initialBa
     Promise.all([
       parseAllSessions(getDateRange(period), activeProvider),
       parseAllSessions(getPriorDateRange(period), activeProvider),
-      parseAllSessions(getBaselineDateRange(), activeProvider),
+      parseAllSessions(getRecentDateRange(), activeProvider),
     ]).then(([data, prior, baseline]) => {
       if (cancelled) return
       setProjects(data)
@@ -639,7 +752,7 @@ function InteractiveDashboard({ initialProjects, initialPriorProjects, initialBa
     const [data, prior, baseline] = await Promise.all([
       parseAllSessions(getDateRange(p), prov),
       parseAllSessions(getPriorDateRange(p), prov),
-      parseAllSessions(getBaselineDateRange(), prov),
+      parseAllSessions(getRecentDateRange(), prov),
     ])
     setProjects(data)
     setPriorProjects(prior)
@@ -702,7 +815,7 @@ function InteractiveDashboard({ initialProjects, initialPriorProjects, initialBa
       <DashboardContent
         projects={projects}
         priorProjects={priorProjects}
-        baselineProjects={baselineProjects}
+        recentProjects={recentProjects}
         period={period}
       />
       <StatusBar width={dashWidth} autoRefresh={autoRefresh} refreshInterval={refreshInterval} />
@@ -710,10 +823,10 @@ function InteractiveDashboard({ initialProjects, initialPriorProjects, initialBa
   )
 }
 
-function StaticDashboard({ projects, priorProjects, baselineProjects, period }: {
+function StaticDashboard({ projects, priorProjects, recentProjects, period }: {
   projects: ProjectSummary[]
   priorProjects: ProjectSummary[]
-  baselineProjects: ProjectSummary[]
+  recentProjects: ProjectSummary[]
   period: Period
 }) {
   const { dashWidth } = getLayout()
@@ -723,7 +836,7 @@ function StaticDashboard({ projects, priorProjects, baselineProjects, period }: 
       <DashboardContent
         projects={projects}
         priorProjects={priorProjects}
-        baselineProjects={baselineProjects}
+        recentProjects={recentProjects}
         period={period}
       />
     </Box>
@@ -732,10 +845,10 @@ function StaticDashboard({ projects, priorProjects, baselineProjects, period }: 
 
 export async function renderDashboard(period: Period = 'week', provider: string = 'all'): Promise<void> {
   await loadPricing()
-  const [projects, priorProjects, baselineProjects] = await Promise.all([
+  const [projects, priorProjects, recentProjects] = await Promise.all([
     parseAllSessions(getDateRange(period), provider),
     parseAllSessions(getPriorDateRange(period), provider),
-    parseAllSessions(getBaselineDateRange(), provider),
+    parseAllSessions(getRecentDateRange(), provider),
   ])
 
   const isTTY = process.stdin.isTTY && process.stdout.isTTY
@@ -745,7 +858,7 @@ export async function renderDashboard(period: Period = 'week', provider: string 
       <InteractiveDashboard
         initialProjects={projects}
         initialPriorProjects={priorProjects}
-        initialBaselineProjects={baselineProjects}
+        initialRecentProjects={recentProjects}
         initialPeriod={period}
         initialProvider={provider}
       />
@@ -756,7 +869,7 @@ export async function renderDashboard(period: Period = 'week', provider: string 
       <StaticDashboard
         projects={projects}
         priorProjects={priorProjects}
-        baselineProjects={baselineProjects}
+        recentProjects={recentProjects}
         period={period}
       />,
       { patchConsole: false }
