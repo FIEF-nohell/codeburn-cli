@@ -24,19 +24,19 @@ const PERIOD_LABELS_SHORT: Record<Period, string> = {
 }
 
 const MIN_WIDE = 90
-const ORANGE = '#FF8C42'
+const ACCENT = '#A855F7'
 const DIM = '#555555'
 const GOLD = '#FFD700'
 
 const PANEL_COLORS = {
-  overview: '#FF8C42',
-  daily: '#5B9EF5',
-  project: '#5BF5A0',
-  model: '#E05BF5',
-  activity: '#F5C85B',
-  tools: '#5BF5E0',
-  mcp: '#F55BE0',
-  bash: '#F5A05B',
+  overview: '#A855F7',
+  daily: '#8B5CF6',
+  project: '#14B8A6',
+  model: '#EC4899',
+  activity: '#C084FC',
+  tools: '#6366F1',
+  mcp: '#F472B6',
+  bash: '#D946EF',
 }
 
 const CATEGORY_COLORS: Record<TaskCategory, string> = {
@@ -63,18 +63,13 @@ function lerp(a: number, b: number, t: number): number {
   return a + t * (b - a)
 }
 
-// Blue -> amber -> orange gradient across the bar width
 function gradientColor(pct: number): string {
-  if (pct <= 0.33) {
-    const t = pct / 0.33
-    return toHex(lerp(91, 245, t), lerp(158, 200, t), lerp(245, 91, t))
+  if (pct <= 0.5) {
+    const t = pct / 0.5
+    return toHex(lerp(76, 168, t), lerp(29, 85, t), lerp(149, 247, t))
   }
-  if (pct <= 0.66) {
-    const t = (pct - 0.33) / 0.33
-    return toHex(lerp(245, 255, t), lerp(200, 140, t), lerp(91, 66, t))
-  }
-  const t = (pct - 0.66) / 0.34
-  return toHex(lerp(255, 245, t), lerp(140, 91, t), lerp(66, 91, t))
+  const t = (pct - 0.5) / 0.5
+  return toHex(lerp(168, 240, t), lerp(85, 171, t), lerp(247, 252, t))
 }
 
 function getDateRange(period: Period): { start: Date; end: Date } {
@@ -143,7 +138,7 @@ function Overview({ projects, label, width }: { projects: ProjectSummary[]; labe
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={PANEL_COLORS.overview} paddingX={1} width={width}>
       <Text wrap="truncate-end">
-        <Text bold color={ORANGE}>CodeBurn</Text>
+        <Text bold color={ACCENT}>CodeBurn</Text>
         <Text dimColor>  {label}</Text>
       </Text>
       <Text wrap="truncate-end">
@@ -204,7 +199,7 @@ function ProjectBreakdown({ projects, pw, bw }: { projects: ProjectSummary[]; pw
   const maxCost = Math.max(...projects.map(p => p.totalCostUSD))
   const nw = Math.max(8, pw - bw - 23)
   return (
-    <Panel title="By Project" color={PANEL_COLORS.project} width={pw}>
+    <Panel title="By Workspace" color={PANEL_COLORS.project} width={pw}>
       <Text dimColor wrap="truncate-end">{''.padEnd(bw + 1 + nw)}{'cost'.padStart(8)}{'sess'.padStart(6)}</Text>
       {projects.slice(0, 8).map((project, i) => (
         <Text key={`${project.project}-${i}`} wrap="truncate-end">
@@ -277,7 +272,7 @@ function ActivityBreakdown({ projects, pw, bw }: { projects: ProjectSummary[]; p
             </Text>
             <Text color={GOLD}>{formatCost(data.costUSD).padStart(8)}</Text>
             <Text>{String(data.turns).padStart(6)}</Text>
-            <Text color={data.editTurns === 0 ? DIM : oneShotPct === '100%' ? '#5BF58C' : ORANGE}>{String(oneShotPct).padStart(7)}</Text>
+            <Text color={data.editTurns === 0 ? DIM : oneShotPct === '100%' ? '#5BF58C' : ACCENT}>{String(oneShotPct).padStart(7)}</Text>
           </Text>
         )
       })}
@@ -390,7 +385,7 @@ function PeriodTabs({ active, providerName, showProvider }: {
     <Box justifyContent="space-between" paddingX={1}>
       <Box gap={1}>
         {PERIODS.map(p => (
-          <Text key={p} bold={active === p} color={active === p ? ORANGE : DIM}>
+          <Text key={p} bold={active === p} color={active === p ? ACCENT : DIM}>
             {active === p ? `[ ${labels[p]} ]` : `  ${labels[p]}  `}
           </Text>
         ))}
@@ -398,7 +393,7 @@ function PeriodTabs({ active, providerName, showProvider }: {
       {showProvider && providerName && (
         <Box>
           <Text color={DIM}>|  </Text>
-          <Text color={ORANGE} bold>[p]</Text>
+          <Text color={ACCENT} bold>[p]</Text>
           <Text bold> {getProviderDisplayName(providerName)}</Text>
         </Box>
       )}
@@ -406,27 +401,21 @@ function PeriodTabs({ active, providerName, showProvider }: {
   )
 }
 
-function StatusBar({ width, autoRefresh }: { width: number; autoRefresh: boolean }) {
+function StatusBar({ width, autoRefresh, refreshInterval }: { width: number; autoRefresh: boolean; refreshInterval: number }) {
   const compact = width < 70
   const sep = compact ? ' ' : '   '
   return (
     <Box borderStyle="round" borderColor={DIM} width={width} justifyContent="center" paddingX={1}>
       <Text>
-        <Text color={ORANGE} bold>{'<'}</Text><Text color={ORANGE}>{'>'}</Text>
+        <Text color={ACCENT} bold>{'<'}</Text><Text color={ACCENT}>{'>'}</Text>
         <Text dimColor>{compact ? ' ' : ' switch'}{sep}</Text>
-        <Text color={ORANGE} bold>q</Text>
-        <Text dimColor>{compact ? '' : ' quit'}{sep}</Text>
-        <Text color={ORANGE} bold>1</Text>
-        <Text dimColor>{compact ? '' : ' today'}{sep}</Text>
-        <Text color={ORANGE} bold>2</Text>
-        <Text dimColor>{compact ? '' : ' week'}{sep}</Text>
-        <Text color={ORANGE} bold>3</Text>
-        <Text dimColor>{compact ? '' : ' 30d'}{sep}</Text>
-        <Text color={ORANGE} bold>4</Text>
-        <Text dimColor>{compact ? '' : ' month'}{sep}</Text>
-        <Text color={ORANGE} bold>r</Text>
+        <Text color={ACCENT} bold>r</Text>
         <Text dimColor>{compact ? ' ' : ' auto-refresh '}</Text>
         <Text color={autoRefresh ? '#5BF58C' : DIM}>{autoRefresh ? 'on' : 'off'}</Text>
+        <Text dimColor>{sep}</Text>
+        <Text color={ACCENT} bold>{'↑'}</Text><Text color={ACCENT}>{'↓'}</Text>
+        <Text dimColor>{compact ? ' ' : ' interval '}</Text>
+        <Text bold>{refreshInterval}s</Text>
       </Text>
     </Box>
   )
@@ -442,7 +431,7 @@ function DashboardContent({ projects, period }: { projects: ProjectSummary[]; pe
 
   if (projects.length === 0) {
     return (
-      <Panel title="CodeBurn" color={ORANGE} width={dashWidth}>
+      <Panel title="CodeBurn" color={ACCENT} width={dashWidth}>
         <Text dimColor>No usage data found for {PERIOD_LABELS[period]}.</Text>
       </Panel>
     )
@@ -486,6 +475,9 @@ function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider 
   const [activeProvider, setActiveProvider] = useState(initialProvider)
   const [detectedProviders, setDetectedProviders] = useState<string[]>([])
   const [autoRefresh, setAutoRefresh] = useState(false)
+  const [refreshInterval, setRefreshInterval] = useState(10)
+  const [countdown, setCountdown] = useState(10)
+  const [isReloading, setIsReloading] = useState(false)
   const { dashWidth } = getLayout()
   const multipleProviders = detectedProviders.length > 1
 
@@ -501,7 +493,7 @@ function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider 
         setDetectedProviders(found)
         if (found.length > 1) {
           const range = getDateRange(period)
-          for (const name of found) parseAllSessions(range, name).catch(() => {})
+          for (const name of found) parseAllSessions(range, name).catch(() => { })
         }
       }
     }
@@ -510,16 +502,40 @@ function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider 
   }, [])
 
   useEffect(() => {
-    if (!autoRefresh) return
-    const interval = setInterval(() => {
-      clearSessionCache()
-      const range = getDateRange(period)
-      parseAllSessions(range, activeProvider).then(data => {
-        setProjects(data)
-      }).catch(() => {})
-    }, 10000)
-    return () => clearInterval(interval)
-  }, [autoRefresh, period, activeProvider])
+    setCountdown(refreshInterval)
+    if (!autoRefresh) setIsReloading(false)
+  }, [autoRefresh, refreshInterval])
+
+  useEffect(() => {
+    if (!autoRefresh || isReloading) return
+    const tick = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          setIsReloading(true)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(tick)
+  }, [autoRefresh, isReloading])
+
+  useEffect(() => {
+    if (!isReloading) return
+    let cancelled = false
+    clearSessionCache()
+    parseAllSessions(getDateRange(period), activeProvider).then(data => {
+      if (cancelled) return
+      setProjects(data)
+      setCountdown(refreshInterval)
+      setIsReloading(false)
+    }).catch(() => {
+      if (cancelled) return
+      setCountdown(refreshInterval)
+      setIsReloading(false)
+    })
+    return () => { cancelled = true }
+  }, [isReloading, period, activeProvider, refreshInterval])
 
   const reloadData = useCallback(async (p: Period, prov: string) => {
     setLoading(true)
@@ -546,6 +562,15 @@ function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider 
       return
     }
 
+    if (key.upArrow) {
+      setRefreshInterval(prev => prev + 1)
+      return
+    }
+    if (key.downArrow) {
+      setRefreshInterval(prev => Math.max(1, prev - 1))
+      return
+    }
+
     const idx = PERIODS.indexOf(period)
     if (key.leftArrow) {
       switchPeriod(PERIODS[(idx - 1 + PERIODS.length) % PERIODS.length])
@@ -561,10 +586,10 @@ function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider 
     return (
       <Box flexDirection="column" width={dashWidth}>
         <PeriodTabs active={period} providerName={activeProvider} showProvider={multipleProviders} />
-        <Panel title="CodeBurn" color={ORANGE} width={dashWidth}>
+        <Panel title="CodeBurn" color={ACCENT} width={dashWidth}>
           <Text dimColor>Loading {PERIOD_LABELS[period]}...</Text>
         </Panel>
-        <StatusBar width={dashWidth} autoRefresh={autoRefresh} />
+        <StatusBar width={dashWidth} autoRefresh={autoRefresh} refreshInterval={refreshInterval} />
       </Box>
     )
   }
@@ -573,7 +598,7 @@ function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider 
     <Box flexDirection="column" width={dashWidth}>
       <PeriodTabs active={period} providerName={activeProvider} showProvider={multipleProviders} />
       <DashboardContent projects={projects} period={period} />
-      <StatusBar width={dashWidth} autoRefresh={autoRefresh} />
+      <StatusBar width={dashWidth} autoRefresh={autoRefresh} refreshInterval={refreshInterval} />
     </Box>
   )
 }
