@@ -5,6 +5,7 @@ import { formatCost, formatTokens } from './format.js'
 import { parseAllSessions, clearSessionCache } from './parser.js'
 import { loadPricing } from './models.js'
 import { providers } from './providers/index.js'
+import { computeDailyCosts, projectEndOfPeriod, type Projection } from './prediction.js'
 
 type Period = 'today' | 'week' | 'month' | '30days'
 
@@ -115,6 +116,13 @@ const PRIOR_LABELS: Record<Period, string> = {
   month: 'last month',
 }
 
+function getBaselineDateRange(): { start: Date; end: Date } {
+  const now = new Date()
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999)
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 8)
+  return { start, end }
+}
+
 type Layout = { dashWidth: number; wide: boolean; halfWidth: number; barWidth: number }
 
 function getLayout(): Layout {
@@ -166,9 +174,21 @@ function Delta({ current, prior, priorLabel }: { current: number; prior: number;
   return <Text color={color}> {arrow} {display}% vs {priorLabel}</Text>
 }
 
-function Overview({ projects, priorProjects, label, priorLabel, width }: {
+function ProjectionBadge({ projection }: { projection: Projection | null }) {
+  if (!projection) return null
+  const confidenceColor = projection.confidence === 'low' ? DIM : GOLD
+  return (
+    <>
+      <Text dimColor> proj </Text>
+      <Text color={confidenceColor}>~{formatCost(projection.projected)}</Text>
+    </>
+  )
+}
+
+function Overview({ projects, priorProjects, projection, label, priorLabel, width }: {
   projects: ProjectSummary[]
   priorProjects: ProjectSummary[]
+  projection: Projection | null
   label: string
   priorLabel: string
   width: number
@@ -194,7 +214,9 @@ function Overview({ projects, priorProjects, label, priorLabel, width }: {
       </Text>
       <Text wrap="truncate-end">
         <Text bold color={GOLD}>{formatCost(totalCost)}</Text>
-        <Text dimColor> cost   </Text>
+        <Text dimColor> cost</Text>
+        <ProjectionBadge projection={projection} />
+        <Text dimColor>   </Text>
         <Text bold>{totalCalls.toLocaleString()}</Text>
         <Text dimColor> calls   </Text>
         <Text bold>{String(totalSessions)}</Text>
@@ -477,9 +499,10 @@ function Row({ wide, width, children }: { wide: boolean; width: number; children
   return <>{children}</>
 }
 
-function DashboardContent({ projects, priorProjects, period }: {
+function DashboardContent({ projects, priorProjects, baselineProjects, period }: {
   projects: ProjectSummary[]
   priorProjects: ProjectSummary[]
+  baselineProjects: ProjectSummary[]
   period: Period
 }) {
   const { dashWidth, wide, halfWidth, barWidth } = getLayout()
@@ -493,12 +516,15 @@ function DashboardContent({ projects, priorProjects, period }: {
   }
 
   const pw = wide ? halfWidth : dashWidth
+  const baselineDaily = computeDailyCosts(baselineProjects)
+  const projection = projectEndOfPeriod(period, projects, baselineDaily)
 
   return (
     <Box flexDirection="column" width={dashWidth}>
       <Overview
         projects={projects}
         priorProjects={priorProjects}
+        projection={projection}
         label={PERIOD_LABELS[period]}
         priorLabel={PRIOR_LABELS[period]}
         width={dashWidth}
@@ -524,9 +550,10 @@ function DashboardContent({ projects, priorProjects, period }: {
   )
 }
 
-function InteractiveDashboard({ initialProjects, initialPriorProjects, initialPeriod, initialProvider }: {
+function InteractiveDashboard({ initialProjects, initialPriorProjects, initialBaselineProjects, initialPeriod, initialProvider }: {
   initialProjects: ProjectSummary[]
   initialPriorProjects: ProjectSummary[]
+  initialBaselineProjects: ProjectSummary[]
   initialPeriod: Period
   initialProvider: string
 }) {
@@ -534,6 +561,7 @@ function InteractiveDashboard({ initialProjects, initialPriorProjects, initialPe
   const [period, setPeriod] = useState<Period>(initialPeriod)
   const [projects, setProjects] = useState<ProjectSummary[]>(initialProjects)
   const [priorProjects, setPriorProjects] = useState<ProjectSummary[]>(initialPriorProjects)
+  const [baselineProjects, setBaselineProjects] = useState<ProjectSummary[]>(initialBaselineProjects)
   const [loading, setLoading] = useState(false)
   const [activeProvider, setActiveProvider] = useState(initialProvider)
   const [detectedProviders, setDetectedProviders] = useState<string[]>([])
@@ -590,10 +618,12 @@ function InteractiveDashboard({ initialProjects, initialPriorProjects, initialPe
     Promise.all([
       parseAllSessions(getDateRange(period), activeProvider),
       parseAllSessions(getPriorDateRange(period), activeProvider),
-    ]).then(([data, prior]) => {
+      parseAllSessions(getBaselineDateRange(), activeProvider),
+    ]).then(([data, prior, baseline]) => {
       if (cancelled) return
       setProjects(data)
       setPriorProjects(prior)
+      setBaselineProjects(baseline)
       setCountdown(refreshInterval)
       setIsReloading(false)
     }).catch(() => {
@@ -606,12 +636,14 @@ function InteractiveDashboard({ initialProjects, initialPriorProjects, initialPe
 
   const reloadData = useCallback(async (p: Period, prov: string) => {
     setLoading(true)
-    const [data, prior] = await Promise.all([
+    const [data, prior, baseline] = await Promise.all([
       parseAllSessions(getDateRange(p), prov),
       parseAllSessions(getPriorDateRange(p), prov),
+      parseAllSessions(getBaselineDateRange(), prov),
     ])
     setProjects(data)
     setPriorProjects(prior)
+    setBaselineProjects(baseline)
     setLoading(false)
   }, [])
 
@@ -667,31 +699,43 @@ function InteractiveDashboard({ initialProjects, initialPriorProjects, initialPe
   return (
     <Box flexDirection="column" width={dashWidth}>
       <PeriodTabs active={period} providerName={activeProvider} showProvider={multipleProviders} />
-      <DashboardContent projects={projects} priorProjects={priorProjects} period={period} />
+      <DashboardContent
+        projects={projects}
+        priorProjects={priorProjects}
+        baselineProjects={baselineProjects}
+        period={period}
+      />
       <StatusBar width={dashWidth} autoRefresh={autoRefresh} refreshInterval={refreshInterval} />
     </Box>
   )
 }
 
-function StaticDashboard({ projects, priorProjects, period }: {
+function StaticDashboard({ projects, priorProjects, baselineProjects, period }: {
   projects: ProjectSummary[]
   priorProjects: ProjectSummary[]
+  baselineProjects: ProjectSummary[]
   period: Period
 }) {
   const { dashWidth } = getLayout()
   return (
     <Box flexDirection="column" width={dashWidth}>
       <PeriodTabs active={period} />
-      <DashboardContent projects={projects} priorProjects={priorProjects} period={period} />
+      <DashboardContent
+        projects={projects}
+        priorProjects={priorProjects}
+        baselineProjects={baselineProjects}
+        period={period}
+      />
     </Box>
   )
 }
 
 export async function renderDashboard(period: Period = 'week', provider: string = 'all'): Promise<void> {
   await loadPricing()
-  const [projects, priorProjects] = await Promise.all([
+  const [projects, priorProjects, baselineProjects] = await Promise.all([
     parseAllSessions(getDateRange(period), provider),
     parseAllSessions(getPriorDateRange(period), provider),
+    parseAllSessions(getBaselineDateRange(), provider),
   ])
 
   const isTTY = process.stdin.isTTY && process.stdout.isTTY
@@ -701,6 +745,7 @@ export async function renderDashboard(period: Period = 'week', provider: string 
       <InteractiveDashboard
         initialProjects={projects}
         initialPriorProjects={priorProjects}
+        initialBaselineProjects={baselineProjects}
         initialPeriod={period}
         initialProvider={provider}
       />
@@ -708,7 +753,12 @@ export async function renderDashboard(period: Period = 'week', provider: string 
     await waitUntilExit()
   } else {
     const { unmount } = render(
-      <StaticDashboard projects={projects} priorProjects={priorProjects} period={period} />,
+      <StaticDashboard
+        projects={projects}
+        priorProjects={priorProjects}
+        baselineProjects={baselineProjects}
+        period={period}
+      />,
       { patchConsole: false }
     )
     unmount()
