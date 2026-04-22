@@ -83,6 +83,38 @@ function getDateRange(period: Period): { start: Date; end: Date } {
   }
 }
 
+function getPriorDateRange(period: Period): { start: Date; end: Date } {
+  const now = new Date()
+  switch (period) {
+    case 'today': {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
+      return { start: d, end: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999) }
+    }
+    case 'week': {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 14)
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7, 23, 59, 59, 999)
+      return { start, end }
+    }
+    case '30days': {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 60)
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30, 23, 59, 59, 999)
+      return { start, end }
+    }
+    case 'month': {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999)
+      return { start, end }
+    }
+  }
+}
+
+const PRIOR_LABELS: Record<Period, string> = {
+  today: 'yesterday',
+  week: 'prev 7d',
+  '30days': 'prev 30d',
+  month: 'last month',
+}
+
 type Layout = { dashWidth: number; wide: boolean; halfWidth: number; barWidth: number }
 
 function getLayout(): Layout {
@@ -123,8 +155,26 @@ function fit(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) : s.padEnd(n)
 }
 
-function Overview({ projects, label, width }: { projects: ProjectSummary[]; label: string; width: number }) {
+function Delta({ current, prior, priorLabel }: { current: number; prior: number; priorLabel: string }) {
+  if (current === 0 && prior === 0) return null
+  if (prior === 0) return <Text color="#5BF58C"> new vs {priorLabel}</Text>
+  const pct = ((current - prior) / prior) * 100
+  const abs = Math.abs(pct)
+  const arrow = pct > 0 ? '↑' : pct < 0 ? '↓' : '='
+  const color = pct > 5 ? '#F55B5B' : pct < -5 ? '#5BF58C' : DIM
+  const display = abs >= 1000 ? '>999' : abs.toFixed(0)
+  return <Text color={color}> {arrow} {display}% vs {priorLabel}</Text>
+}
+
+function Overview({ projects, priorProjects, label, priorLabel, width }: {
+  projects: ProjectSummary[]
+  priorProjects: ProjectSummary[]
+  label: string
+  priorLabel: string
+  width: number
+}) {
   const totalCost = projects.reduce((s, p) => s + p.totalCostUSD, 0)
+  const priorCost = priorProjects.reduce((s, p) => s + p.totalCostUSD, 0)
   const totalCalls = projects.reduce((s, p) => s + p.totalApiCalls, 0)
   const totalSessions = projects.reduce((s, p) => s + p.sessions.length, 0)
   const allSessions = projects.flatMap(p => p.sessions)
@@ -140,6 +190,7 @@ function Overview({ projects, label, width }: { projects: ProjectSummary[]; labe
       <Text wrap="truncate-end">
         <Text bold color={ACCENT}>CodeBurn</Text>
         <Text dimColor>  {label}</Text>
+        <Delta current={totalCost} prior={priorCost} priorLabel={priorLabel} />
       </Text>
       <Text wrap="truncate-end">
         <Text bold color={GOLD}>{formatCost(totalCost)}</Text>
@@ -426,7 +477,11 @@ function Row({ wide, width, children }: { wide: boolean; width: number; children
   return <>{children}</>
 }
 
-function DashboardContent({ projects, period }: { projects: ProjectSummary[]; period: Period }) {
+function DashboardContent({ projects, priorProjects, period }: {
+  projects: ProjectSummary[]
+  priorProjects: ProjectSummary[]
+  period: Period
+}) {
   const { dashWidth, wide, halfWidth, barWidth } = getLayout()
 
   if (projects.length === 0) {
@@ -441,7 +496,13 @@ function DashboardContent({ projects, period }: { projects: ProjectSummary[]; pe
 
   return (
     <Box flexDirection="column" width={dashWidth}>
-      <Overview projects={projects} label={PERIOD_LABELS[period]} width={dashWidth} />
+      <Overview
+        projects={projects}
+        priorProjects={priorProjects}
+        label={PERIOD_LABELS[period]}
+        priorLabel={PRIOR_LABELS[period]}
+        width={dashWidth}
+      />
 
       <Row wide={wide} width={dashWidth}>
         <DailyActivity projects={projects} days={period === 'month' || period === '30days' ? 31 : 14} pw={pw} bw={barWidth} />
@@ -463,14 +524,16 @@ function DashboardContent({ projects, period }: { projects: ProjectSummary[]; pe
   )
 }
 
-function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider }: {
+function InteractiveDashboard({ initialProjects, initialPriorProjects, initialPeriod, initialProvider }: {
   initialProjects: ProjectSummary[]
+  initialPriorProjects: ProjectSummary[]
   initialPeriod: Period
   initialProvider: string
 }) {
   const { exit } = useApp()
   const [period, setPeriod] = useState<Period>(initialPeriod)
   const [projects, setProjects] = useState<ProjectSummary[]>(initialProjects)
+  const [priorProjects, setPriorProjects] = useState<ProjectSummary[]>(initialPriorProjects)
   const [loading, setLoading] = useState(false)
   const [activeProvider, setActiveProvider] = useState(initialProvider)
   const [detectedProviders, setDetectedProviders] = useState<string[]>([])
@@ -524,9 +587,13 @@ function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider 
     if (!isReloading) return
     let cancelled = false
     clearSessionCache()
-    parseAllSessions(getDateRange(period), activeProvider).then(data => {
+    Promise.all([
+      parseAllSessions(getDateRange(period), activeProvider),
+      parseAllSessions(getPriorDateRange(period), activeProvider),
+    ]).then(([data, prior]) => {
       if (cancelled) return
       setProjects(data)
+      setPriorProjects(prior)
       setCountdown(refreshInterval)
       setIsReloading(false)
     }).catch(() => {
@@ -539,9 +606,12 @@ function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider 
 
   const reloadData = useCallback(async (p: Period, prov: string) => {
     setLoading(true)
-    const range = getDateRange(p)
-    const data = await parseAllSessions(range, prov)
+    const [data, prior] = await Promise.all([
+      parseAllSessions(getDateRange(p), prov),
+      parseAllSessions(getPriorDateRange(p), prov),
+    ])
     setProjects(data)
+    setPriorProjects(prior)
     setLoading(false)
   }, [])
 
@@ -597,37 +667,48 @@ function InteractiveDashboard({ initialProjects, initialPeriod, initialProvider 
   return (
     <Box flexDirection="column" width={dashWidth}>
       <PeriodTabs active={period} providerName={activeProvider} showProvider={multipleProviders} />
-      <DashboardContent projects={projects} period={period} />
+      <DashboardContent projects={projects} priorProjects={priorProjects} period={period} />
       <StatusBar width={dashWidth} autoRefresh={autoRefresh} refreshInterval={refreshInterval} />
     </Box>
   )
 }
 
-function StaticDashboard({ projects, period }: { projects: ProjectSummary[]; period: Period }) {
+function StaticDashboard({ projects, priorProjects, period }: {
+  projects: ProjectSummary[]
+  priorProjects: ProjectSummary[]
+  period: Period
+}) {
   const { dashWidth } = getLayout()
   return (
     <Box flexDirection="column" width={dashWidth}>
       <PeriodTabs active={period} />
-      <DashboardContent projects={projects} period={period} />
+      <DashboardContent projects={projects} priorProjects={priorProjects} period={period} />
     </Box>
   )
 }
 
 export async function renderDashboard(period: Period = 'week', provider: string = 'all'): Promise<void> {
   await loadPricing()
-  const range = getDateRange(period)
-  const projects = await parseAllSessions(range, provider)
+  const [projects, priorProjects] = await Promise.all([
+    parseAllSessions(getDateRange(period), provider),
+    parseAllSessions(getPriorDateRange(period), provider),
+  ])
 
   const isTTY = process.stdin.isTTY && process.stdout.isTTY
 
   if (isTTY) {
     const { waitUntilExit } = render(
-      <InteractiveDashboard initialProjects={projects} initialPeriod={period} initialProvider={provider} />
+      <InteractiveDashboard
+        initialProjects={projects}
+        initialPriorProjects={priorProjects}
+        initialPeriod={period}
+        initialProvider={provider}
+      />
     )
     await waitUntilExit()
   } else {
     const { unmount } = render(
-      <StaticDashboard projects={projects} period={period} />,
+      <StaticDashboard projects={projects} priorProjects={priorProjects} period={period} />,
       { patchConsole: false }
     )
     unmount()
